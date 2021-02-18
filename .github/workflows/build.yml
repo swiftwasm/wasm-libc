@@ -1,0 +1,74 @@
+name: Build
+on:
+  push: {}
+  pull_request: {}
+
+jobs:
+  buildlibc:
+    name: Build libc
+    runs-on: ubuntu-18.04
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install clang (Linux)
+      shell: bash
+      run: |
+        curl -sSfL https://github.com/llvm/llvm-project/releases/download/llvmorg-10.0.0/clang+llvm-10.0.0-x86_64-linux-gnu-ubuntu-18.04.tar.xz | tar xJf -
+        export LLVM_BIN_DIR=`pwd`/clang+llvm-10.0.0-x86_64-linux-gnu-ubuntu-18.04/bin
+        echo "$LLVM_BIN_DIR" >> $GITHUB_PATH
+        echo "LLVM_BIN=$LLVM_BIN_DIR" >> $GITHUB_ENV
+    - name: Build libc
+      shell: bash
+      run: |
+        cmake -G "Unix Makefiles" -B build \
+          -D CMAKE_TOOLCHAIN_FILE="cmake/toolchains/wasm.toolchain.cmake" \
+          -D LLVM_BIN="$LLVM_BIN" \
+          -D CMAKE_INSTALL_PREFIX="$PWD/install"
+        (cd build && make install)
+        (cd install && \
+          tar cfz wasi-libc.tar.gz wasi-libc && \
+          tar cfz wasm-libc.tar.gz wasm-libc)
+
+    - name: Upload wasi-libc
+      uses: actions/upload-artifact@v2
+      with:
+        name: wasi-libc
+        path: install/wasi-libc
+
+    - name: Upload wasm-libc
+      uses: actions/upload-artifact@v2
+      with:
+        name: wasm-libc
+        path: install/wasm-libc
+
+    - name: Create Release
+      if: contains(github.ref, 'tags/')
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+
+    - name: Upload wasi-libc as a release asset
+      uses: actions/upload-release-asset@v1.0.1
+      if: contains(github.ref, 'tags/')
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./install/wasi-libc.tar.gz
+        asset_name: wasi-libc.tar.gz
+        asset_content_type: application/x-gzip
+
+    - name: Upload wasm-libc as a release asset
+      uses: actions/upload-release-asset@v1.0.1
+      if: contains(github.ref, 'tags/')
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./install/wasm-libc.tar.gz
+        asset_name: wasm-libc.tar.gz
+        asset_content_type: application/x-gzip
+
